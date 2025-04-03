@@ -19,14 +19,12 @@ def load_sessions():
     if os.path.exists(SESSIONS_FILE):
         with open(SESSIONS_FILE, 'r') as f:
             sessions_data = json.load(f)
-            # Convert string timestamps back to datetime objects
             for code, session in sessions_data.items():
                 session['created_at'] = datetime.fromisoformat(session['created_at'])
             return sessions_data
     return {}
 
 def save_sessions(sessions):
-    # Convert datetime objects to strings for JSON serialization
     sessions_data = {}
     for code, session in sessions.items():
         session_copy = session.copy()
@@ -45,102 +43,66 @@ def generate_code():
 def cleanup_expired_sessions():
     current_time = datetime.now()
     expired_sessions = []
-    
     for code, session in sessions.items():
         if current_time - session['created_at'] > timedelta(hours=24):
             expired_sessions.append(code)
-            try:
-                os.remove(session['file_path'])
-            except:
-                pass
-    
+            for file_path in session['file_paths']:
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
     for code in expired_sessions:
         del sessions[code]
-    
     save_sessions(sessions)
 
 # Load existing sessions
 sessions = load_sessions()
 
-# Set page config
-st.set_page_config(
-    page_title="File Share",
-    page_icon="📁",
-    layout="wide"
-)
+st.set_page_config(page_title="File Share", page_icon="📁", layout="wide")
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .stButton>button {
-        width: 100%;
-        margin-top: 10px;
-    }
-    .code-display {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 8px;
-        font-family: monospace;
-        font-size: 1.2rem;
-        text-align: center;
-        margin: 20px 0;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# Main title
 st.title("📁 File Share")
 
-# Create tabs for Upload and Download
-tab1, tab2 = st.tabs(["Upload File", "Download File"])
+tab1, tab2 = st.tabs(["Upload Files", "Download Files"])
 
-# Upload Tab
 with tab1:
-    st.header("Upload a File")
-    st.write("Select a file to share (max 200MB)")
+    st.header("Upload Files")
+    st.write("Select multiple files to share (max 200MB per file)")
     
-    uploaded_file = st.file_uploader("Choose a file", type=list(ALLOWED_EXTENSIONS))
+    uploaded_files = st.file_uploader("Choose files", type=list(ALLOWED_EXTENSIONS), accept_multiple_files=True)
     
-    if uploaded_file is not None:
-        if allowed_file(uploaded_file.name):
-            filename = secure_filename(uploaded_file.name)
-            code = generate_code()
-            
-            # Save file
-            file_path = os.path.join(UPLOAD_FOLDER, filename)
-            with open(file_path, "wb") as f:
-                f.write(uploaded_file.getvalue())
-            
-            # Store session info
+    if uploaded_files:
+        code = generate_code()
+        file_paths = []
+        
+        for uploaded_file in uploaded_files:
+            if allowed_file(uploaded_file.name):
+                filename = secure_filename(uploaded_file.name)
+                file_path = os.path.join(UPLOAD_FOLDER, filename)
+                with open(file_path, "wb") as f:
+                    f.write(uploaded_file.getvalue())
+                file_paths.append(file_path)
+            else:
+                st.error(f"{uploaded_file.name} is not allowed")
+                continue
+        
+        if file_paths:
             sessions[code] = {
-                'filename': filename,
-                'file_path': file_path,
+                'file_paths': file_paths,
                 'created_at': datetime.now(),
                 'downloads': 0
             }
-            
-            # Save sessions to file
             save_sessions(sessions)
             
-            # Display success message and code
-            st.success("File uploaded successfully!")
-            st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
-            
-            # Add copy button
-            st.button("Copy Code", key="copy_upload", on_click=lambda: st.write("Code copied to clipboard!"))
-            
-        else:
-            st.error("File type not allowed")
+            st.success("Files uploaded successfully!")
+            st.markdown(f"### Share this code with others: \n``{code}``")
 
-# Download Tab
 with tab2:
-    st.header("Download a File")
+    st.header("Download Files")
     st.write("Enter the code provided by the file owner")
     
     code = st.text_input("Enter 6-digit code", "").strip().upper()
     
-    if st.button("Download File"):
+    if st.button("Retrieve Files"):
         if not code:
             st.error("Please enter a code")
         elif code not in sessions:
@@ -148,31 +110,33 @@ with tab2:
         else:
             session = sessions[code]
             
-            # Check if file has expired
             if datetime.now() - session['created_at'] > timedelta(hours=24):
-                try:
-                    os.remove(session['file_path'])
-                except:
-                    pass
+                for file_path in session['file_paths']:
+                    try:
+                        os.remove(file_path)
+                    except:
+                        pass
                 del sessions[code]
                 save_sessions(sessions)
-                st.error("This file has expired")
+                st.error("This file session has expired")
             else:
-                session['downloads'] += 1
-                save_sessions(sessions)
+                selected_files = st.multiselect("Select files to download", session['file_paths'], format_func=lambda x: os.path.basename(x))
                 
-                # Create download button
-                with open(session['file_path'], "rb") as f:
-                    st.download_button(
-                        label="Click to Download",
-                        data=f,
-                        file_name=session['filename'],
-                        mime="application/octet-stream"
-                    )
+                if st.checkbox("Download all files"):
+                    selected_files = session['file_paths']
+                
+                if selected_files:
+                    for file_path in selected_files:
+                        with open(file_path, "rb") as f:
+                            st.download_button(
+                                label=f"Download {os.path.basename(file_path)}",
+                                data=f,
+                                file_name=os.path.basename(file_path),
+                                mime="application/octet-stream"
+                            )
+                else:
+                    st.warning("Select at least one file to download.")
 
-# Cleanup expired sessions
 cleanup_expired_sessions()
-
-# Footer
 st.markdown("---")
-st.markdown("Files are automatically deleted after 24 hours") 
+st.markdown("Files are automatically deleted after 24 hours")
