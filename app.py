@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 import streamlit as st
 from werkzeug.utils import secure_filename
+import time
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -41,6 +42,12 @@ def allowed_file(filename):
 
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def get_time_remaining(created_at):
+    current_time = datetime.now()
+    time_diff = current_time - created_at
+    seconds_remaining = 60 - (time_diff.seconds % 60)
+    return seconds_remaining
 
 def cleanup_expired_sessions():
     current_time = datetime.now()
@@ -85,6 +92,12 @@ st.markdown("""
         text-align: center;
         margin: 20px 0;
     }
+    .timer {
+        color: #ff4b4b;
+        font-weight: bold;
+        text-align: center;
+        margin: 10px 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -127,8 +140,18 @@ with tab1:
             st.markdown("### Share this code with others:")
             st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
             
-            # Add copy button
-            st.button("Copy Code", key="copy_upload", on_click=lambda: st.write("Code copied to clipboard!"))
+            # Display timer
+            time_remaining = get_time_remaining(sessions[code]['created_at'])
+            st.markdown(f'<div class="timer">Code expires in: {time_remaining} seconds</div>', unsafe_allow_html=True)
+            
+            # Add copy button with JavaScript
+            st.markdown(f"""
+                <button onclick="navigator.clipboard.writeText('{code}')" 
+                        style="width: 100%; padding: 10px; margin-top: 10px; border: none; 
+                        background-color: #0d6efd; color: white; border-radius: 5px; cursor: pointer;">
+                    Copy Code
+                </button>
+            """, unsafe_allow_html=True)
             
         else:
             st.error("File type not allowed")
@@ -175,4 +198,5 @@ cleanup_expired_sessions()
 
 # Footer
 st.markdown("---")
-st.markdown("Files are automatically deleted after 24 hours") 
+st.markdown("Files are automatically deleted after 24 hours")
+st.markdown("Note: The sharing code changes every minute") 
