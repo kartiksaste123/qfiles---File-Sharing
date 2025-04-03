@@ -117,7 +117,11 @@ with tab1:
     if uploaded_file is not None:
         if allowed_file(uploaded_file.name):
             filename = secure_filename(uploaded_file.name)
-            code = generate_code()
+            
+            # Generate code only if it's a new file upload
+            if 'current_code' not in st.session_state:
+                st.session_state.current_code = generate_code()
+                st.session_state.upload_time = datetime.now()
             
             # Save file
             file_path = os.path.join(UPLOAD_FOLDER, filename)
@@ -125,10 +129,10 @@ with tab1:
                 f.write(uploaded_file.getvalue())
             
             # Store session info
-            sessions[code] = {
+            sessions[st.session_state.current_code] = {
                 'filename': filename,
                 'file_path': file_path,
-                'created_at': datetime.now(),
+                'created_at': st.session_state.upload_time,
                 'downloads': 0
             }
             
@@ -138,15 +142,15 @@ with tab1:
             # Display success message and code
             st.success("File uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="code-display">{st.session_state.current_code}</div>', unsafe_allow_html=True)
             
             # Display timer
-            time_remaining = get_time_remaining(sessions[code]['created_at'])
+            time_remaining = get_time_remaining(st.session_state.upload_time)
             st.markdown(f'<div class="timer">Code expires in: {time_remaining} seconds</div>', unsafe_allow_html=True)
             
             # Add copy button with JavaScript
             st.markdown(f"""
-                <button onclick="navigator.clipboard.writeText('{code}')" 
+                <button onclick="navigator.clipboard.writeText('{st.session_state.current_code}')" 
                         style="width: 100%; padding: 10px; margin-top: 10px; border: none; 
                         background-color: #0d6efd; color: white; border-radius: 5px; cursor: pointer;">
                     Copy Code
