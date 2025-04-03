@@ -59,6 +59,14 @@ sessions = load_sessions()
 
 st.set_page_config(page_title="File Share", page_icon="📁", layout="wide")
 
+st.markdown("""
+    <style>
+    .stButton>button { width: 100%; margin-top: 10px; }
+    .code-display { background-color: #f0f2f6; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 1.2rem; text-align: center; margin: 20px 0; }
+    .timer { font-size: 1rem; font-weight: bold; color: red; text-align: center; }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("📁 File Share")
 
 tab1, tab2 = st.tabs(["Upload File", "Download File"])
@@ -99,7 +107,7 @@ with tab1:
             
             st.success("Files uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.code(code, language='markdown')
+            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
 
 with tab2:
     st.header("Download a File")
