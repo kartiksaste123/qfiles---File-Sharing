@@ -77,7 +77,6 @@ st.markdown("""
     <style>
     .stButton>button { width: 100%; margin-top: 10px; }
     .code-display { background-color: #f0f2f6; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 1.2rem; text-align: center; margin: 20px 0; }
-    .copy-code { cursor: pointer; color: blue; text-decoration: underline; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -121,7 +120,7 @@ with tab1:
             
             st.success("Files uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code} <button onclick="navigator.clipboard.writeText(\'{code}\')">Copy Code</button></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
             
             st.subheader("Uploaded Files")
             for file_path in file_paths:
@@ -173,7 +172,7 @@ with tab2:
                     
                     with open(zip_path, "rb") as f:
                         st.download_button(
-                            label="Download ZIP",
+                            label="Download Now",
                             data=f,
                             file_name=zip_filename,
                             mime="application/zip"
