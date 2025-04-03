@@ -19,19 +19,17 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def load_sessions():
     if os.path.exists(SESSIONS_FILE):
         with open(SESSIONS_FILE, 'r') as f:
-            sessions_data = json.load(f)
-            for code, session in sessions_data.items():
-                session['created_at'] = datetime.fromisoformat(session['created_at'])
-            return sessions_data
+            try:
+                sessions_data = json.load(f)
+                for code, session in sessions_data.items():
+                    session['created_at'] = datetime.fromisoformat(session['created_at'])
+                return sessions_data
+            except json.JSONDecodeError:
+                return {}
     return {}
 
 def save_sessions(sessions):
-    sessions_data = {}
-    for code, session in sessions.items():
-        session_copy = session.copy()
-        session_copy['created_at'] = session['created_at'].isoformat()
-        sessions_data[code] = session_copy
-    
+    sessions_data = {code: {**session, 'created_at': session['created_at'].isoformat()} for code, session in sessions.items()}
     with open(SESSIONS_FILE, 'w') as f:
         json.dump(sessions_data, f)
 
@@ -44,13 +42,13 @@ def generate_code():
 def cleanup_expired_sessions():
     current_time = datetime.now()
     expired_sessions = []
-    for code, session in sessions.items():
+    for code, session in list(sessions.items()):
         if current_time - session['created_at'] > timedelta(hours=24):
             expired_sessions.append(code)
             for file_path in session['file_paths']:
                 try:
                     os.remove(file_path)
-                except:
+                except FileNotFoundError:
                     pass
     for code in expired_sessions:
         del sessions[code]
@@ -79,6 +77,11 @@ with tab1:
             if allowed_file(uploaded_file.name):
                 filename = secure_filename(uploaded_file.name)
                 file_path = os.path.join(UPLOAD_FOLDER, filename)
+                
+                if os.path.exists(file_path):
+                    filename = f"{filename.rsplit('.', 1)[0]}_{int(datetime.timestamp(datetime.now()))}.{filename.rsplit('.', 1)[1]}"
+                    file_path = os.path.join(UPLOAD_FOLDER, filename)
+                
                 with open(file_path, "wb") as f:
                     f.write(uploaded_file.getvalue())
                 file_paths.append(file_path)
@@ -110,7 +113,7 @@ with tab2:
                 for file_path in session['file_paths']:
                     try:
                         os.remove(file_path)
-                    except:
+                    except FileNotFoundError:
                         pass
                 del sessions[code]
                 save_sessions(sessions)
