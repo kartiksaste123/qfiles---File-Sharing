@@ -10,7 +10,7 @@ from werkzeug.utils import secure_filename
 UPLOAD_FOLDER = 'uploads'
 SESSIONS_FILE = 'sessions.json'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'}
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -97,7 +97,7 @@ tab1, tab2 = st.tabs(["Upload File", "Download File"])
 # Upload Tab
 with tab1:
     st.header("Upload a File")
-    st.write("Select a file to share (max 50MB)")
+    st.write("Select a file to share (max 200MB)")
     
     uploaded_file = st.file_uploader("Choose a file", type=list(ALLOWED_EXTENSIONS))
     
