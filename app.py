@@ -126,7 +126,6 @@ with tab2:
     code = st.text_input("Enter 6-digit code", "").strip().upper()
     if st.button("Verify"):
         session = sessions.get(code, None)
-        
         if session:
             if datetime.now() - session['created_at'] > timedelta(hours=24):
                 for file_path in session['file_paths']:
@@ -138,31 +137,35 @@ with tab2:
                 save_sessions(sessions)
                 st.error("This file session has expired")
             else:
-                selected_files = st.multiselect("Select files to download", session['file_paths'], format_func=lambda x: os.path.basename(x))
-                
-                if st.checkbox("Download all files"):
-                    selected_files = session['file_paths']
-                
-                if st.button("Download Selected Files"):
-                    if selected_files:
-                        zip_filename = f"download_{code}.zip"
-                        zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
-                        with zipfile.ZipFile(zip_path, 'w') as zipf:
-                            for file_path in selected_files:
-                                zipf.write(file_path, os.path.basename(file_path))
-                        
-                        with open(zip_path, "rb") as f:
-                            st.download_button(
-                                label="Download Selected Files",
-                                data=f,
-                                file_name=zip_filename,
-                                mime="application/zip"
-                            )
-                        os.remove(zip_path)
-                    else:
-                        st.warning("Select at least one file to download.")
+                st.session_state['verified_code'] = code
+                st.session_state['verified_files'] = session['file_paths']
         else:
             st.error("Invalid or expired code")
+    
+    if 'verified_code' in st.session_state:
+        selected_files = st.multiselect("Select files to download", st.session_state['verified_files'], format_func=lambda x: os.path.basename(x))
+        
+        if st.checkbox("Download all files"):
+            selected_files = st.session_state['verified_files']
+        
+        if st.button("Download Selected Files"):
+            if selected_files:
+                zip_filename = f"download_{st.session_state['verified_code']}.zip"
+                zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
+                with zipfile.ZipFile(zip_path, 'w') as zipf:
+                    for file_path in selected_files:
+                        zipf.write(file_path, os.path.basename(file_path))
+                
+                with open(zip_path, "rb") as f:
+                    st.download_button(
+                        label="Download Now",
+                        data=f,
+                        file_name=zip_filename,
+                        mime="application/zip"
+                    )
+                os.remove(zip_path)
+            else:
+                st.warning("Select at least one file to download.")
 
 cleanup_expired_sessions()
 st.markdown("---")
