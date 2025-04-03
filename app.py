@@ -61,25 +61,6 @@ sessions = load_sessions()
 
 st.set_page_config(page_title="File Share", page_icon="📁", layout="wide")
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .stButton>button {
-        width: 100%;
-        margin-top: 10px;
-    }
-    .code-display {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 8px;
-        font-family: monospace;
-        font-size: 1.2rem;
-        text-align: center;
-        margin: 20px 0;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 st.title("📁 File Share")
 
 tab1, tab2 = st.tabs(["Upload File", "Download File"])
@@ -115,9 +96,7 @@ with tab1:
             
             st.success("Files uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
-            
-            st.button("Copy Code", key="copy_upload", on_click=lambda: st.write("Code copied to clipboard!"))
+            st.code(code, language='markdown')
 
 with tab2:
     st.header("Download a File")
@@ -148,8 +127,14 @@ with tab2:
         if st.checkbox("Download all files"):
             selected_files = st.session_state['verified_files']
         
-        if st.button("Download Selected Files"):
-            if selected_files:
+        if selected_files:
+            download_option = st.radio("Download options:", ("Download Separately", "Download as ZIP"))
+            
+            if download_option == "Download Separately":
+                for file_path in selected_files:
+                    with open(file_path, "rb") as f:
+                        st.download_button(label=f"Download {os.path.basename(file_path)}", data=f, file_name=os.path.basename(file_path))
+            elif download_option == "Download as ZIP":
                 zip_filename = f"download_{st.session_state['verified_code']}.zip"
                 zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
                 with zipfile.ZipFile(zip_path, 'w') as zipf:
@@ -158,14 +143,14 @@ with tab2:
                 
                 with open(zip_path, "rb") as f:
                     st.download_button(
-                        label="Download Now",
+                        label="Download ZIP",
                         data=f,
                         file_name=zip_filename,
                         mime="application/zip"
                     )
                 os.remove(zip_path)
-            else:
-                st.warning("Select at least one file to download.")
+        else:
+            st.warning("Select at least one file to download.")
 
 cleanup_expired_sessions()
 st.markdown("---")
