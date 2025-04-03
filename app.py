@@ -123,30 +123,25 @@ with tab2:
     st.write("Enter the code provided by the file owner")
     
     code = st.text_input("Enter 6-digit code", "").strip().upper()
+    session = sessions.get(code, None)
     
-    if st.button("Retrieve Files"):
-        if not code:
-            st.error("Please enter a code")
-        elif code not in sessions:
-            st.error("Invalid or expired code")
+    if session:
+        if datetime.now() - session['created_at'] > timedelta(hours=24):
+            for file_path in session['file_paths']:
+                try:
+                    os.remove(file_path)
+                except:
+                    pass
+            del sessions[code]
+            save_sessions(sessions)
+            st.error("This file session has expired")
         else:
-            session = sessions[code]
+            selected_files = st.multiselect("Select files to download", session['file_paths'], format_func=lambda x: os.path.basename(x))
             
-            if datetime.now() - session['created_at'] > timedelta(hours=24):
-                for file_path in session['file_paths']:
-                    try:
-                        os.remove(file_path)
-                    except:
-                        pass
-                del sessions[code]
-                save_sessions(sessions)
-                st.error("This file session has expired")
-            else:
-                selected_files = st.multiselect("Select files to download", session['file_paths'], format_func=lambda x: os.path.basename(x))
-                
-                if st.checkbox("Download all files"):
-                    selected_files = session['file_paths']
-                
+            if st.checkbox("Download all files"):
+                selected_files = session['file_paths']
+            
+            if st.button("Download Selected Files"):
                 if selected_files:
                     for file_path in selected_files:
                         with open(file_path, "rb") as f:
@@ -158,6 +153,8 @@ with tab2:
                             )
                 else:
                     st.warning("Select at least one file to download.")
+    elif code:
+        st.error("Invalid or expired code")
 
 cleanup_expired_sessions()
 st.markdown("---")
