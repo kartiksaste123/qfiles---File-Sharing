@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timedelta
 import streamlit as st
 from werkzeug.utils import secure_filename
+import time
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -40,6 +41,15 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def generate_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def get_current_code(original_code, created_at):
+    # Generate a deterministic code based on the original code and current minute
+    current_time = datetime.now()
+    minutes_since_creation = int((current_time - created_at).total_seconds() / 60)
+    
+    # Use the original code as a seed for random number generation
+    random.seed(hash(original_code + str(minutes_since_creation)))
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 def cleanup_expired_sessions():
@@ -104,7 +114,7 @@ with tab1:
     if uploaded_file is not None:
         if allowed_file(uploaded_file.name):
             filename = secure_filename(uploaded_file.name)
-            code = generate_code()
+            original_code = generate_code()
             
             # Save file
             file_path = os.path.join(UPLOAD_FOLDER, filename)
@@ -112,11 +122,12 @@ with tab1:
                 f.write(uploaded_file.getvalue())
             
             # Store session info
-            sessions[code] = {
+            sessions[original_code] = {
                 'filename': filename,
                 'file_path': file_path,
                 'created_at': datetime.now(),
-                'downloads': 0
+                'downloads': 0,
+                'original_code': original_code
             }
             
             # Save sessions to file
@@ -125,10 +136,19 @@ with tab1:
             # Display success message and code
             st.success("File uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
             
-            # Add copy button
-            st.button("Copy Code", key="copy_upload", on_click=lambda: st.write("Code copied to clipboard!"))
+            # Get current code based on time
+            current_code = get_current_code(original_code, sessions[original_code]['created_at'])
+            st.markdown(f'<div class="code-display">{current_code}</div>', unsafe_allow_html=True)
+            
+            # Add copy button with JavaScript
+            st.markdown(f"""
+                <button onclick="navigator.clipboard.writeText('{current_code}')" 
+                        style="width: 100%; padding: 10px; margin-top: 10px; border: none; 
+                        background-color: #0d6efd; color: white; border-radius: 5px; cursor: pointer;">
+                    Copy Code
+                </button>
+            """, unsafe_allow_html=True)
             
         else:
             st.error("File type not allowed")
@@ -143,36 +163,43 @@ with tab2:
     if st.button("Download File"):
         if not code:
             st.error("Please enter a code")
-        elif code not in sessions:
-            st.error("Invalid or expired code")
         else:
-            session = sessions[code]
+            # Check all sessions for matching current code
+            found = False
+            for original_code, session in sessions.items():
+                current_code = get_current_code(original_code, session['created_at'])
+                if code == current_code:
+                    found = True
+                    # Check if file has expired
+                    if datetime.now() - session['created_at'] > timedelta(hours=24):
+                        try:
+                            os.remove(session['file_path'])
+                        except:
+                            pass
+                        del sessions[original_code]
+                        save_sessions(sessions)
+                        st.error("This file has expired")
+                    else:
+                        session['downloads'] += 1
+                        save_sessions(sessions)
+                        
+                        # Create download button
+                        with open(session['file_path'], "rb") as f:
+                            st.download_button(
+                                label="Click to Download",
+                                data=f,
+                                file_name=session['filename'],
+                                mime="application/octet-stream"
+                            )
+                    break
             
-            # Check if file has expired
-            if datetime.now() - session['created_at'] > timedelta(hours=24):
-                try:
-                    os.remove(session['file_path'])
-                except:
-                    pass
-                del sessions[code]
-                save_sessions(sessions)
-                st.error("This file has expired")
-            else:
-                session['downloads'] += 1
-                save_sessions(sessions)
-                
-                # Create download button
-                with open(session['file_path'], "rb") as f:
-                    st.download_button(
-                        label="Click to Download",
-                        data=f,
-                        file_name=session['filename'],
-                        mime="application/octet-stream"
-                    )
+            if not found:
+                st.error("Invalid or expired code")
 
 # Cleanup expired sessions
 cleanup_expired_sessions()
 
 # Footer
 st.markdown("---")
-st.markdown("Files are automatically deleted after 24 hours") 
+st.markdown("Files are automatically deleted after 24 hours")
+st.markdown("Note: The sharing code changes every minute") 
