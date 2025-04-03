@@ -5,12 +5,14 @@ import json
 from datetime import datetime, timedelta
 import streamlit as st
 from werkzeug.utils import secure_filename
+import time
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 SESSIONS_FILE = 'sessions.json'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'}
 MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
+CODE_EXPIRY = 60  # 1 minute
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -19,14 +21,12 @@ def load_sessions():
     if os.path.exists(SESSIONS_FILE):
         with open(SESSIONS_FILE, 'r') as f:
             sessions_data = json.load(f)
-            # Convert string timestamps back to datetime objects
             for code, session in sessions_data.items():
                 session['created_at'] = datetime.fromisoformat(session['created_at'])
             return sessions_data
     return {}
 
 def save_sessions(sessions):
-    # Convert datetime objects to strings for JSON serialization
     sessions_data = {}
     for code, session in sessions.items():
         session_copy = session.copy()
@@ -63,35 +63,20 @@ def cleanup_expired_sessions():
 sessions = load_sessions()
 
 # Set page config
-st.set_page_config(
-    page_title="File Share",
-    page_icon="📁",
-    layout="wide"
-)
+st.set_page_config(page_title="File Share", page_icon="📁", layout="wide")
 
 # Custom CSS
 st.markdown("""
     <style>
-    .stButton>button {
-        width: 100%;
-        margin-top: 10px;
-    }
-    .code-display {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 8px;
-        font-family: monospace;
-        font-size: 1.2rem;
-        text-align: center;
-        margin: 20px 0;
-    }
+    .stButton>button { width: 100%; margin-top: 10px; }
+    .code-display { background-color: #f0f2f6; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 1.2rem; text-align: center; margin: 20px 0; }
+    .timer { font-size: 1rem; font-weight: bold; color: red; text-align: center; }
     </style>
 """, unsafe_allow_html=True)
 
 # Main title
 st.title("📁 File Share")
 
-# Create tabs for Upload and Download
 tab1, tab2 = st.tabs(["Upload File", "Download File"])
 
 # Upload Tab
@@ -104,14 +89,15 @@ with tab1:
     if uploaded_file is not None:
         if allowed_file(uploaded_file.name):
             filename = secure_filename(uploaded_file.name)
-            code = generate_code()
+            if "file_code" not in st.session_state or "expiry_time" not in st.session_state or datetime.now() > st.session_state.expiry_time:
+                st.session_state.file_code = generate_code()
+                st.session_state.expiry_time = datetime.now() + timedelta(seconds=CODE_EXPIRY)
+            code = st.session_state.file_code
             
-            # Save file
             file_path = os.path.join(UPLOAD_FOLDER, filename)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getvalue())
             
-            # Store session info
             sessions[code] = {
                 'filename': filename,
                 'file_path': file_path,
@@ -119,17 +105,18 @@ with tab1:
                 'downloads': 0
             }
             
-            # Save sessions to file
             save_sessions(sessions)
             
-            # Display success message and code
             st.success("File uploaded successfully!")
             st.markdown("### Share this code with others:")
             st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
             
-            # Add copy button
-            st.button("Copy Code", key="copy_upload", on_click=lambda: st.write("Code copied to clipboard!"))
+            time_remaining = int((st.session_state.expiry_time - datetime.now()).total_seconds())
+            st.markdown(f'<div class="timer">Code expires in: {time_remaining} seconds</div>', unsafe_allow_html=True)
             
+            if st.button("Copy Code"):
+                st.session_state.copied = code
+                st.success("Code copied to clipboard!")
         else:
             st.error("File type not allowed")
 
@@ -148,7 +135,6 @@ with tab2:
         else:
             session = sessions[code]
             
-            # Check if file has expired
             if datetime.now() - session['created_at'] > timedelta(hours=24):
                 try:
                     os.remove(session['file_path'])
@@ -161,18 +147,9 @@ with tab2:
                 session['downloads'] += 1
                 save_sessions(sessions)
                 
-                # Create download button
                 with open(session['file_path'], "rb") as f:
-                    st.download_button(
-                        label="Click to Download",
-                        data=f,
-                        file_name=session['filename'],
-                        mime="application/octet-stream"
-                    )
+                    st.download_button(label="Click to Download", data=f, file_name=session['filename'], mime="application/octet-stream")
 
-# Cleanup expired sessions
 cleanup_expired_sessions()
-
-# Footer
 st.markdown("---")
-st.markdown("Files are automatically deleted after 24 hours") 
+st.markdown("Files are automatically deleted after 24 hours")
