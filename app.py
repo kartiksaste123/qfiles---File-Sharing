@@ -121,7 +121,7 @@ with tab1:
             
             st.success("Files uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code} <span class="copy-code" onclick="navigator.clipboard.writeText('{code}')">(Copy)</span></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="code-display">{code} <button onclick="navigator.clipboard.writeText(\'{code}\')">Copy Code</button></div>', unsafe_allow_html=True)
             
             st.subheader("Uploaded Files")
             for file_path in file_paths:
@@ -164,11 +164,7 @@ with tab2:
             download_option = st.radio("Download options:", ("Download Separately", "Download as ZIP"))
             
             if st.button("Download Now"):
-                if download_option == "Download Separately":
-                    for file_path in selected_files:
-                        with open(file_path, "rb") as f:
-                            st.download_button(label=f"Download {os.path.basename(file_path)}", data=f, file_name=os.path.basename(file_path))
-                elif download_option == "Download as ZIP":
+                if download_option == "Download as ZIP":
                     zip_filename = f"download_{st.session_state['verified_code']}.zip"
                     zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
                     with zipfile.ZipFile(zip_path, 'w') as zipf:
