@@ -17,13 +17,53 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def load_sessions():
     if os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, 'r') as f:
-            sessions_data = json.load(f)
-            # Convert string timestamps back to datetime objects
-            for code, session in sessions_data.items():
-                session['created_at'] = datetime.fromisoformat(session['created_at'])
-            return sessions_data
+        try:
+            with open(SESSIONS_FILE, 'r') as f:
+                sessions_data = json.load(f)
+                # Convert string timestamps back to datetime objects
+                valid_sessions = {}
+                for code, session in sessions_data.items():
+                    try:
+                        # Handle missing created_at field
+                        if 'created_at' not in session:
+                            session['created_at'] = datetime.now().isoformat()
+                        
+                        # Ensure all required fields exist
+                        session['created_at'] = datetime.fromisoformat(session['created_at'])
+                        session['file_path'] = session.get('file_path', '')
+                        session['filename'] = session.get('filename', 'unknown')
+                        session['downloads'] = session.get('downloads', 0)
+                        
+                        valid_sessions[code] = session
+                    except Exception as e:
+                        print(f"Error processing session {code}: {str(e)}")
+                        continue
+                return valid_sessions
+        except json.JSONDecodeError:
+            print("Error reading sessions file, returning empty sessions")
+            return {}
     return {}
+
+def save_sessions(sessions):
+    try:
+        # Convert datetime objects to strings for JSON serialization
+        sessions_data = {}
+        for code, session in sessions.items():
+            session_copy = session.copy()
+            session_copy['created_at'] = session['created_at'].isoformat()
+            sessions_data[code] = session_copy
+        
+        with open(SESSIONS_FILE, 'w') as f:
+            json.dump(sessions_data, f)
+    except Exception as e:
+        print(f"Error saving sessions: {str(e)}")
+
+# Load existing sessions with error handling
+try:
+    sessions = load_sessions()
+except Exception as e:
+    print(f"Error loading sessions: {str(e)}")
+    sessions = {}
 
 def save_sessions(sessions):
     # Convert datetime objects to strings for JSON serialization
