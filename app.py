@@ -40,6 +40,7 @@ def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 def cleanup_expired_sessions():
+    global sessions
     current_time = datetime.now()
     expired_sessions = []
     for code, session in list(sessions.items()):
@@ -142,9 +143,10 @@ with tab2:
             download_option = st.radio("Download options:", ("Download Separately", "Download as ZIP"))
             
             if download_option == "Download Separately":
-                for file_path in selected_files:
-                    with open(file_path, "rb") as f:
-                        st.download_button(label=f"Download {os.path.basename(file_path)}", data=f, file_name=os.path.basename(file_path))
+                if st.button("Download Now"):
+                    for file_path in selected_files:
+                        with open(file_path, "rb") as f:
+                            st.download_button(label=f"Download {os.path.basename(file_path)}", data=f, file_name=os.path.basename(file_path))
             elif download_option == "Download as ZIP":
                 zip_filename = f"download_{st.session_state['verified_code']}.zip"
                 zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
