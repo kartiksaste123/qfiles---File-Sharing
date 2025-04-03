@@ -5,67 +5,50 @@ import json
 from datetime import datetime, timedelta
 import streamlit as st
 from werkzeug.utils import secure_filename
-from streamlit_autorefresh import st_autorefresh
 
 # Configuration
-UPLOAD_FOLDER = "uploads"
-SESSIONS_FILE = "sessions.json"
-ALLOWED_EXTENSIONS = {"txt", "pdf", "png", "jpg", "jpeg", "gif", "doc", "docx", "xls", "xlsx", "zip", "rar"}
-CODE_EXPIRY = timedelta(minutes=1)
+UPLOAD_FOLDER = 'uploads'
+SESSIONS_FILE = 'sessions.json'
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'}
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
+CODE_EXPIRY_TIME = 60  # 1 minute
 
-# Create uploads directory if not exists
+# Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Load existing sessions
 def load_sessions():
     if os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, "r") as f:
-            sessions_data = json.load(f)
-            for code, session in sessions_data.items():
-                session["created_at"] = datetime.fromisoformat(session["created_at"])
-            return sessions_data
+        with open(SESSIONS_FILE, 'r') as f:
+            return json.load(f)
     return {}
 
 def save_sessions(sessions):
-    sessions_data = {code: {**session, "created_at": session["created_at"].isoformat()} for code, session in sessions.items()}
-    with open(SESSIONS_FILE, "w") as f:
-        json.dump(sessions_data, f)
+    with open(SESSIONS_FILE, 'w') as f:
+        json.dump(sessions, f)
 
 def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def generate_code():
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 def update_code():
-    if "current_code" not in st.session_state or datetime.now() - st.session_state["code_created_at"] >= CODE_EXPIRY:
-        st.session_state["current_code"] = generate_code()
-        st.session_state["code_created_at"] = datetime.now()
-        st.session_state["expired_codes"].append(st.session_state["current_code"])
+    if 'file_data' in st.session_state:
+        st.session_state['file_data']['code'] = generate_code()
+        st.session_state['file_data']['expires_at'] = datetime.now() + timedelta(seconds=CODE_EXPIRY_TIME)
+        save_sessions(sessions)
 
 # Load sessions
 sessions = load_sessions()
 
-def cleanup_expired_sessions():
-    expired_codes = [code for code in sessions if datetime.now() - sessions[code]["created_at"] > CODE_EXPIRY]
-    for code in expired_codes:
-        del sessions[code]
-    save_sessions(sessions)
-
+# Streamlit page config
 st.set_page_config(page_title="File Share", page_icon="📁", layout="wide")
-st.markdown("""
-    <style>
-    .stButton>button { width: 100%; margin-top: 10px; }
-    .code-display { background-color: #f0f2f6; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 1.2rem; text-align: center; margin: 20px 0; }
-    </style>
-""", unsafe_allow_html=True)
 
 st.title("📁 File Share")
-tab1, tab2 = st.tabs(["Upload File", "Download File"])
 
-if "expired_codes" not in st.session_state:
-    st.session_state["expired_codes"] = []
-update_code()
-st_autorefresh(interval=1000, key="refresh_timer")  # Auto refresh every second
+# Tabs for Upload & Download
+tab1, tab2 = st.tabs(["Upload File", "Download File"])
 
 with tab1:
     st.header("Upload a File")
@@ -75,32 +58,49 @@ with tab1:
         if allowed_file(uploaded_file.name):
             filename = secure_filename(uploaded_file.name)
             file_path = os.path.join(UPLOAD_FOLDER, filename)
+            
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getvalue())
-            sessions[st.session_state["current_code"]] = {"filename": filename, "file_path": file_path, "created_at": datetime.now(), "downloads": 0}
+            
+            code = generate_code()
+            expires_at = datetime.now() + timedelta(seconds=CODE_EXPIRY_TIME)
+            
+            # Store file details in session state
+            st.session_state['file_data'] = {
+                'filename': filename,
+                'file_path': file_path,
+                'code': code,
+                'expires_at': expires_at.isoformat()
+            }
+            
+            # Save session
+            sessions[code] = st.session_state['file_data']
             save_sessions(sessions)
+            
             st.success("File uploaded successfully!")
-            st.markdown(f"### Share this code: <div class='code-display'>{st.session_state['current_code']}</div>", unsafe_allow_html=True)
-            time_left = CODE_EXPIRY.total_seconds() - (datetime.now() - st.session_state["code_created_at"]).total_seconds()
-            st.markdown(f"#### Code expires in: {int(time_left)} seconds", unsafe_allow_html=True)
-        else:
-            st.error("File type not allowed")
+
+# Display the code & countdown timer if a file is uploaded
+if 'file_data' in st.session_state:
+    file_data = st.session_state['file_data']
+    remaining_time = (datetime.fromisoformat(file_data['expires_at']) - datetime.now()).seconds
+    st.markdown(f"### Share this code: `{file_data['code']}`")
+    st.markdown(f"**Code expires in: {remaining_time} seconds**")
+    
+    # Auto update the code when expired
+    if remaining_time <= 0:
+        update_code()
 
 with tab2:
     st.header("Download a File")
     code = st.text_input("Enter 6-digit code", "").strip().upper()
     
     if st.button("Download File"):
-        if not code:
-            st.error("Please enter a code")
-        elif code in st.session_state["expired_codes"]:
-            st.error("This code has expired")
-        elif code not in sessions:
-            st.error("Invalid code")
+        if code in sessions:
+            file_data = sessions[code]
+            if datetime.now() > datetime.fromisoformat(file_data['expires_at']):
+                st.error("This code has expired.")
+            else:
+                with open(file_data['file_path'], "rb") as f:
+                    st.download_button(label="Click to Download", data=f, file_name=file_data['filename'], mime="application/octet-stream")
         else:
-            session = sessions[code]
-            with open(session["file_path"], "rb") as f:
-                st.download_button(label="Click to Download", data=f, file_name=session["filename"], mime="application/octet-stream")
-cleanup_expired_sessions()
-st.markdown("---")
-st.markdown("Files are automatically deleted after 24 hours")
+            st.error("Invalid or expired code.")
