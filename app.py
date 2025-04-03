@@ -23,15 +23,10 @@ def load_sessions():
                 valid_sessions = {}
                 for code, session in sessions_data.items():
                     try:
-                        # Handle missing fields
-                        if 'created_at' not in session:
-                            session['created_at'] = datetime.now().isoformat()
-                        
                         session['created_at'] = datetime.fromisoformat(session['created_at'])
                         session['file_path'] = session.get('file_path', '')
                         session['filename'] = session.get('filename', 'unknown')
                         session['downloads'] = session.get('downloads', 0)
-                        
                         valid_sessions[code] = session
                     except Exception as e:
                         print(f"Error processing session {code}: {str(e)}")
@@ -95,8 +90,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+# Auto-refresh every 5 seconds
 st.markdown("""
+    <meta http-equiv="refresh" content="5">
     <style>
     .stButton>button {
         width: 100%;
@@ -134,26 +130,27 @@ with tab1:
     uploaded_file = st.file_uploader("Choose file (max 50MB)", type=list(ALLOWED_EXTENSIONS))
     
     if uploaded_file:
-        if 'current_code' not in st.session_state:
+        if 'current_code' not in st.session_state or 'file_data' not in st.session_state:
             if allowed_file(uploaded_file.name) and uploaded_file.size <= MAX_FILE_SIZE:
                 try:
-                    filename = secure_filename(uploaded_file.name)
-                    code = generate_code()
-                    file_path = os.path.join(UPLOAD_FOLDER, filename)
+                    # Store file data in session state
+                    st.session_state.file_data = uploaded_file.getvalue()
+                    st.session_state.filename = secure_filename(uploaded_file.name)
+                    st.session_state.current_code = generate_code()
+                    st.session_state.upload_time = datetime.now()
                     
+                    # Save to disk and sessions
+                    file_path = os.path.join(UPLOAD_FOLDER, st.session_state.filename)
                     with open(file_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
+                        f.write(st.session_state.file_data)
                     
-                    sessions[code] = {
-                        'filename': filename,
+                    sessions[st.session_state.current_code] = {
+                        'filename': st.session_state.filename,
                         'file_path': file_path,
-                        'created_at': datetime.now(),
+                        'created_at': st.session_state.upload_time,
                         'downloads': 0
                     }
                     save_sessions(sessions)
-                    
-                    st.session_state.current_code = code
-                    st.session_state.file_upload_time = datetime.now()
                 except Exception as e:
                     st.error(f"Error saving file: {str(e)}")
             else:
@@ -165,23 +162,49 @@ with tab1:
                 session = sessions[code]
                 time_elapsed = datetime.now() - session['created_at']
                 
+                # Auto-regenerate code if expired
+                if time_elapsed > timedelta(minutes=1):
+                    try:
+                        os.remove(session['file_path'])
+                    except:
+                        pass
+                    del sessions[code]
+                    save_sessions(sessions)
+                    
+                    # Generate new code and resave file
+                    new_code = generate_code()
+                    new_file_path = os.path.join(UPLOAD_FOLDER, st.session_state.filename)
+                    with open(new_file_path, "wb") as f:
+                        f.write(st.session_state.file_data)
+                    
+                    sessions[new_code] = {
+                        'filename': st.session_state.filename,
+                        'file_path': new_file_path,
+                        'created_at': datetime.now(),
+                        'downloads': 0
+                    }
+                    save_sessions(sessions)
+                    
+                    st.session_state.current_code = new_code
+                    st.rerun()
+
+                # Display current code and timer
                 st.success("File uploaded successfully!")
                 st.markdown("### Share this code:")
                 st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
                 
                 # Timer display
                 time_left = timedelta(minutes=1) - time_elapsed
-                if time_left.total_seconds() > 0:
-                    mins, secs = divmod(time_left.seconds, 60)
-                    st.markdown(
-                        f'<div class="timer">⏳ Expires in: {mins:02d}:{secs:02d}</div>',
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.markdown('<div class="timer expired-warning">⚠️ Code expired!</div>', unsafe_allow_html=True)
+                mins, secs = divmod(time_left.seconds, 60)
+                st.markdown(
+                    f'<div class="timer">⏳ Expires in: {mins:02d}:{secs:02d}</div>',
+                    unsafe_allow_html=True
+                )
                 
-                # Copy button with JavaScript
+                # Copy button
                 if st.button("Copy Code"):
+                    st.write(f"Copied to clipboard: {code}")
+                    st.experimental_set_query_params(code=code)
                     js_code = f"""
                     <script>
                     navigator.clipboard.writeText('{code}');
