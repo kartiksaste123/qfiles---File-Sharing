@@ -1,21 +1,40 @@
 import os
 import random
 import string
+import json
 from datetime import datetime, timedelta
 import streamlit as st
 from werkzeug.utils import secure_filename
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
+SESSIONS_FILE = 'sessions.json'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Initialize session state for storing active sessions
-if 'sessions' not in st.session_state:
-    st.session_state.sessions = {}
+def load_sessions():
+    if os.path.exists(SESSIONS_FILE):
+        with open(SESSIONS_FILE, 'r') as f:
+            sessions_data = json.load(f)
+            # Convert string timestamps back to datetime objects
+            for code, session in sessions_data.items():
+                session['created_at'] = datetime.fromisoformat(session['created_at'])
+            return sessions_data
+    return {}
+
+def save_sessions(sessions):
+    # Convert datetime objects to strings for JSON serialization
+    sessions_data = {}
+    for code, session in sessions.items():
+        session_copy = session.copy()
+        session_copy['created_at'] = session['created_at'].isoformat()
+        sessions_data[code] = session_copy
+    
+    with open(SESSIONS_FILE, 'w') as f:
+        json.dump(sessions_data, f)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -27,7 +46,7 @@ def cleanup_expired_sessions():
     current_time = datetime.now()
     expired_sessions = []
     
-    for code, session in st.session_state.sessions.items():
+    for code, session in sessions.items():
         if current_time - session['created_at'] > timedelta(hours=24):
             expired_sessions.append(code)
             try:
@@ -36,7 +55,12 @@ def cleanup_expired_sessions():
                 pass
     
     for code in expired_sessions:
-        del st.session_state.sessions[code]
+        del sessions[code]
+    
+    save_sessions(sessions)
+
+# Load existing sessions
+sessions = load_sessions()
 
 # Set page config
 st.set_page_config(
@@ -88,12 +112,15 @@ with tab1:
                 f.write(uploaded_file.getvalue())
             
             # Store session info
-            st.session_state.sessions[code] = {
+            sessions[code] = {
                 'filename': filename,
                 'file_path': file_path,
                 'created_at': datetime.now(),
                 'downloads': 0
             }
+            
+            # Save sessions to file
+            save_sessions(sessions)
             
             # Display success message and code
             st.success("File uploaded successfully!")
@@ -116,10 +143,10 @@ with tab2:
     if st.button("Download File"):
         if not code:
             st.error("Please enter a code")
-        elif code not in st.session_state.sessions:
+        elif code not in sessions:
             st.error("Invalid or expired code")
         else:
-            session = st.session_state.sessions[code]
+            session = sessions[code]
             
             # Check if file has expired
             if datetime.now() - session['created_at'] > timedelta(hours=24):
@@ -127,10 +154,12 @@ with tab2:
                     os.remove(session['file_path'])
                 except:
                     pass
-                del st.session_state.sessions[code]
+                del sessions[code]
+                save_sessions(sessions)
                 st.error("This file has expired")
             else:
                 session['downloads'] += 1
+                save_sessions(sessions)
                 
                 # Create download button
                 with open(session['file_path'], "rb") as f:
