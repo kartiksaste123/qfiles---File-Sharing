@@ -20,15 +20,13 @@ def load_sessions():
         try:
             with open(SESSIONS_FILE, 'r') as f:
                 sessions_data = json.load(f)
-                # Convert string timestamps back to datetime objects
                 valid_sessions = {}
                 for code, session in sessions_data.items():
                     try:
-                        # Handle missing created_at field
+                        # Handle missing fields
                         if 'created_at' not in session:
                             session['created_at'] = datetime.now().isoformat()
                         
-                        # Ensure all required fields exist
                         session['created_at'] = datetime.fromisoformat(session['created_at'])
                         session['file_path'] = session.get('file_path', '')
                         session['filename'] = session.get('filename', 'unknown')
@@ -37,16 +35,14 @@ def load_sessions():
                         valid_sessions[code] = session
                     except Exception as e:
                         print(f"Error processing session {code}: {str(e)}")
-                        continue
                 return valid_sessions
-        except json.JSONDecodeError:
-            print("Error reading sessions file, returning empty sessions")
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error loading sessions: {str(e)}")
             return {}
     return {}
 
 def save_sessions(sessions):
     try:
-        # Convert datetime objects to strings for JSON serialization
         sessions_data = {}
         for code, session in sessions.items():
             session_copy = session.copy()
@@ -54,27 +50,9 @@ def save_sessions(sessions):
             sessions_data[code] = session_copy
         
         with open(SESSIONS_FILE, 'w') as f:
-            json.dump(sessions_data, f)
+            json.dump(sessions_data, f, indent=2)
     except Exception as e:
         print(f"Error saving sessions: {str(e)}")
-
-# Load existing sessions with error handling
-try:
-    sessions = load_sessions()
-except Exception as e:
-    print(f"Error loading sessions: {str(e)}")
-    sessions = {}
-
-def save_sessions(sessions):
-    # Convert datetime objects to strings for JSON serialization
-    sessions_data = {}
-    for code, session in sessions.items():
-        session_copy = session.copy()
-        session_copy['created_at'] = session['created_at'].isoformat()
-        sessions_data[code] = session_copy
-    
-    with open(SESSIONS_FILE, 'w') as f:
-        json.dump(sessions_data, f)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -87,22 +65,30 @@ def cleanup_expired_sessions():
     expired_sessions = []
     
     for code, session in sessions.items():
-        if current_time - session['created_at'] > timedelta(minutes=1):  # Changed to 1 minute expiration
+        if current_time - session['created_at'] > timedelta(minutes=1):
             expired_sessions.append(code)
             try:
-                os.remove(session['file_path'])
-            except:
-                pass
+                if os.path.exists(session['file_path']):
+                    os.remove(session['file_path'])
+            except Exception as e:
+                print(f"Error deleting file {session['file_path']}: {str(e)}")
     
     for code in expired_sessions:
         del sessions[code]
     
-    save_sessions(sessions)
+    try:
+        save_sessions(sessions)
+    except Exception as e:
+        print(f"Error during cleanup: {str(e)}")
 
-# Load existing sessions
-sessions = load_sessions()
+# Load sessions with error handling
+try:
+    sessions = load_sessions()
+except Exception as e:
+    print(f"Critical error loading sessions: {str(e)}")
+    sessions = {}
 
-# Set page config
+# Streamlit UI Configuration
 st.set_page_config(
     page_title="File Share",
     page_icon="📁",
@@ -125,135 +111,123 @@ st.markdown("""
         text-align: center;
         margin: 20px 0;
         user-select: all;
-        -webkit-user-select: all;
-        -moz-user-select: all;
-        -ms-user-select: all;
     }
     .timer {
         font-size: 1.1rem;
         color: #666;
         margin-top: -15px;
+        text-align: center;
+    }
+    .expired-warning {
+        color: #ff4444;
+        font-weight: bold;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Main title
+# Main App
 st.title("📁 File Share")
-
-# Create tabs for Upload and Download
 tab1, tab2 = st.tabs(["Upload File", "Download File"])
 
-# Upload Tab
 with tab1:
     st.header("Upload a File")
-    st.write("Select a file to share (max 50MB)")
+    uploaded_file = st.file_uploader("Choose file (max 50MB)", type=list(ALLOWED_EXTENSIONS))
     
-    uploaded_file = st.file_uploader("Choose a file", type=list(ALLOWED_EXTENSIONS))
-    
-    if uploaded_file is not None:
+    if uploaded_file:
         if 'current_code' not in st.session_state:
-            if allowed_file(uploaded_file.name):
-                filename = secure_filename(uploaded_file.name)
-                code = generate_code()
-                
-                # Save file
-                file_path = os.path.join(UPLOAD_FOLDER, filename)
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getvalue())
-                
-                # Store session info
-                sessions[code] = {
-                    'filename': filename,
-                    'file_path': file_path,
-                    'created_at': datetime.now(),
-                    'downloads': 0
-                }
-                
-                save_sessions(sessions)
-                st.session_state.current_code = code
-                st.session_state.uploaded_filename = filename
+            if allowed_file(uploaded_file.name) and uploaded_file.size <= MAX_FILE_SIZE:
+                try:
+                    filename = secure_filename(uploaded_file.name)
+                    code = generate_code()
+                    file_path = os.path.join(UPLOAD_FOLDER, filename)
+                    
+                    with open(file_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    
+                    sessions[code] = {
+                        'filename': filename,
+                        'file_path': file_path,
+                        'created_at': datetime.now(),
+                        'downloads': 0
+                    }
+                    save_sessions(sessions)
+                    
+                    st.session_state.current_code = code
+                    st.session_state.file_upload_time = datetime.now()
+                except Exception as e:
+                    st.error(f"Error saving file: {str(e)}")
             else:
-                st.error("File type not allowed")
-        else:
-            # Check if previous upload exists and is valid
-            code = st.session_state.current_code
-            if code not in sessions or sessions[code]['filename'] != st.session_state.uploaded_filename:
-                del st.session_state.current_code
-                st.rerun()
+                st.error("Invalid file type or size")
         
         if 'current_code' in st.session_state:
             code = st.session_state.current_code
             if code in sessions:
                 session = sessions[code]
+                time_elapsed = datetime.now() - session['created_at']
+                
                 st.success("File uploaded successfully!")
-                st.markdown("### Share this code with others:")
+                st.markdown("### Share this code:")
                 st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
                 
-                # Display timer
-                expiration_time = session['created_at'] + timedelta(minutes=1)
-                current_time = datetime.now()
-                time_left = expiration_time - current_time
-                
+                # Timer display
+                time_left = timedelta(minutes=1) - time_elapsed
                 if time_left.total_seconds() > 0:
-                    minutes = time_left.seconds // 60
-                    seconds = time_left.seconds % 60
-                    st.markdown(f'<div class="timer">⏳ Code expires in: {minutes:02d}:{seconds:02d}</div>', 
-                               unsafe_allow_html=True)
+                    mins, secs = divmod(time_left.seconds, 60)
+                    st.markdown(
+                        f'<div class="timer">⏳ Expires in: {mins:02d}:{secs:02d}</div>',
+                        unsafe_allow_html=True
+                    )
                 else:
-                    st.error("Code has expired!")
-                    cleanup_expired_sessions()
-                    del st.session_state.current_code
-                    st.rerun()
+                    st.markdown('<div class="timer expired-warning">⚠️ Code expired!</div>', unsafe_allow_html=True)
                 
                 # Copy button with JavaScript
-                if st.button("Copy Code", key="copy_upload"):
+                if st.button("Copy Code"):
                     js_code = f"""
                     <script>
                     navigator.clipboard.writeText('{code}');
                     </script>
                     """
                     st.components.v1.html(js_code)
-                    st.success("Code copied to clipboard!")
 
-# Download Tab
 with tab2:
-    st.header("Download a File")
-    st.write("Enter the code provided by the file owner")
+    st.header("Download File")
+    input_code = st.text_input("Enter 6-digit code", "").strip().upper()
     
-    code = st.text_input("Enter 6-digit code", "").strip().upper()
-    
-    if st.button("Download File"):
-        if not code:
+    if st.button("Download"):
+        if not input_code:
             st.error("Please enter a code")
-        elif code not in sessions:
-            st.error("Invalid or expired code")
+        elif input_code not in sessions:
+            st.error("Invalid code")
         else:
-            session = sessions[code]
-            
-            # Check if file has expired
+            session = sessions[input_code]
             if datetime.now() - session['created_at'] > timedelta(minutes=1):
+                st.error("Code has expired")
                 try:
-                    os.remove(session['file_path'])
-                except:
-                    pass
-                del sessions[code]
-                save_sessions(sessions)
-                st.error("This file has expired")
+                    if os.path.exists(session['file_path']):
+                        os.remove(session['file_path'])
+                    del sessions[input_code]
+                    save_sessions(sessions)
+                except Exception as e:
+                    st.error(f"Error cleaning up expired file: {str(e)}")
             else:
-                session['downloads'] += 1
-                save_sessions(sessions)
-                
-                with open(session['file_path'], "rb") as f:
-                    st.download_button(
-                        label="Click to Download",
-                        data=f,
-                        file_name=session['filename'],
-                        mime="application/octet-stream"
-                    )
+                try:
+                    with open(session['file_path'], "rb") as f:
+                        st.download_button(
+                            label="Download File",
+                            data=f,
+                            file_name=session['filename'],
+                            mime="application/octet-stream"
+                        )
+                    sessions[input_code]['downloads'] += 1
+                    save_sessions(sessions)
+                except Exception as e:
+                    st.error(f"File not found: {str(e)}")
 
-# Cleanup expired sessions
-cleanup_expired_sessions()
+# Regular cleanup
+try:
+    cleanup_expired_sessions()
+except Exception as e:
+    st.error(f"Cleanup error: {str(e)}")
 
-# Footer
 st.markdown("---")
-st.markdown("Files are automatically deleted after 1 minute") 
+st.caption("Files auto-delete after 1 minute • Max file size: 50MB")
