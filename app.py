@@ -55,6 +55,19 @@ def cleanup_expired_sessions():
         del sessions[code]
     save_sessions(sessions)
 
+def delete_file(session_code, file_path):
+    if session_code in sessions and file_path in sessions[session_code]['file_paths']:
+        try:
+            os.remove(file_path)
+            sessions[session_code]['file_paths'].remove(file_path)
+            if not sessions[session_code]['file_paths']:
+                del sessions[session_code]  # Remove session if no files remain
+            save_sessions(sessions)
+            return True
+        except FileNotFoundError:
+            return False
+    return False
+
 # Load existing sessions
 sessions = load_sessions()
 
@@ -64,7 +77,7 @@ st.markdown("""
     <style>
     .stButton>button { width: 100%; margin-top: 10px; }
     .code-display { background-color: #f0f2f6; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 1.2rem; text-align: center; margin: 20px 0; }
-    .timer { font-size: 1rem; font-weight: bold; color: red; text-align: center; }
+    .copy-code { cursor: pointer; color: blue; text-decoration: underline; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -108,7 +121,15 @@ with tab1:
             
             st.success("Files uploaded successfully!")
             st.markdown("### Share this code with others:")
-            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="code-display">{code} <span class="copy-code" onclick="navigator.clipboard.writeText('{code}')">(Copy)</span></div>', unsafe_allow_html=True)
+            
+            st.subheader("Uploaded Files")
+            for file_path in file_paths:
+                col1, col2 = st.columns([4, 1])
+                col1.write(os.path.basename(file_path))
+                if col2.button("Delete", key=f"del_{file_path}"):
+                    delete_file(code, file_path)
+                    st.experimental_rerun()
 
 with tab2:
     st.header("Download a File")
@@ -142,26 +163,26 @@ with tab2:
         if selected_files:
             download_option = st.radio("Download options:", ("Download Separately", "Download as ZIP"))
             
-            if download_option == "Download Separately":
-                if st.button("Download Now"):
+            if st.button("Download Now"):
+                if download_option == "Download Separately":
                     for file_path in selected_files:
                         with open(file_path, "rb") as f:
                             st.download_button(label=f"Download {os.path.basename(file_path)}", data=f, file_name=os.path.basename(file_path))
-            elif download_option == "Download as ZIP":
-                zip_filename = f"download_{st.session_state['verified_code']}.zip"
-                zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
-                with zipfile.ZipFile(zip_path, 'w') as zipf:
-                    for file_path in selected_files:
-                        zipf.write(file_path, os.path.basename(file_path))
-                
-                with open(zip_path, "rb") as f:
-                    st.download_button(
-                        label="Download ZIP",
-                        data=f,
-                        file_name=zip_filename,
-                        mime="application/zip"
-                    )
-                os.remove(zip_path)
+                elif download_option == "Download as ZIP":
+                    zip_filename = f"download_{st.session_state['verified_code']}.zip"
+                    zip_path = os.path.join(UPLOAD_FOLDER, zip_filename)
+                    with zipfile.ZipFile(zip_path, 'w') as zipf:
+                        for file_path in selected_files:
+                            zipf.write(file_path, os.path.basename(file_path))
+                    
+                    with open(zip_path, "rb") as f:
+                        st.download_button(
+                            label="Download ZIP",
+                            data=f,
+                            file_name=zip_filename,
+                            mime="application/zip"
+                        )
+                    os.remove(zip_path)
         else:
             st.warning("Select at least one file to download.")
 
