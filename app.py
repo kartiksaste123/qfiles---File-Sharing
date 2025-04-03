@@ -60,12 +60,31 @@ sessions = load_sessions()
 
 st.set_page_config(page_title="File Share", page_icon="📁", layout="wide")
 
+# Custom CSS
+st.markdown("""
+    <style>
+    .stButton>button {
+        width: 100%;
+        margin-top: 10px;
+    }
+    .code-display {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 8px;
+        font-family: monospace;
+        font-size: 1.2rem;
+        text-align: center;
+        margin: 20px 0;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 st.title("📁 File Share")
 
-tab1, tab2 = st.tabs(["Upload Files", "Download Files"])
+tab1, tab2 = st.tabs(["Upload File", "Download File"])
 
 with tab1:
-    st.header("Upload Files")
+    st.header("Upload a File")
     st.write("Select multiple files to share (max 200MB per file)")
     
     uploaded_files = st.file_uploader("Choose files", type=list(ALLOWED_EXTENSIONS), accept_multiple_files=True)
@@ -94,10 +113,13 @@ with tab1:
             save_sessions(sessions)
             
             st.success("Files uploaded successfully!")
-            st.markdown(f"### Share this code with others: \n``{code}``")
+            st.markdown("### Share this code with others:")
+            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
+            
+            st.button("Copy Code", key="copy_upload", on_click=lambda: st.write("Code copied to clipboard!"))
 
 with tab2:
-    st.header("Download Files")
+    st.header("Download a File")
     st.write("Enter the code provided by the file owner")
     
     code = st.text_input("Enter 6-digit code", "").strip().upper()
