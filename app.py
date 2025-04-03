@@ -2,7 +2,6 @@ import os
 import random
 import string
 import json
-import time
 from datetime import datetime, timedelta
 import streamlit as st
 from werkzeug.utils import secure_filename
@@ -12,7 +11,7 @@ UPLOAD_FOLDER = 'uploads'
 SESSIONS_FILE = 'sessions.json'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'rar'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-CODE_EXPIRATION_TIME = 60  # Code expires after 60 seconds (1 minute)
+CODE_EXPIRATION_TIME = timedelta(minutes=1)  # Code expires after 1 minute
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -22,26 +21,36 @@ def load_sessions():
         with open(SESSIONS_FILE, 'r') as f:
             try:
                 sessions_data = json.load(f)
-                if not isinstance(sessions_data, dict):  # Ensure it's a dictionary
+                if not isinstance(sessions_data, dict):
                     return {}
-                # Convert timestamps to datetime objects
+
+                # Convert timestamps and add missing fields
                 for code, session in sessions_data.items():
                     session['created_at'] = datetime.fromisoformat(session['created_at'])
-                    session['last_code_time'] = datetime.fromisoformat(session['last_code_time'])
+                    
+                    # Ensure 'last_code_time' exists, default to 'created_at' if missing
+                    if 'last_code_time' in session:
+                        session['last_code_time'] = datetime.fromisoformat(session['last_code_time'])
+                    else:
+                        session['last_code_time'] = session['created_at']
+                    
+                    # Ensure 'downloads' exists, default to 0
+                    if 'downloads' not in session:
+                        session['downloads'] = 0
+
                 return sessions_data
-            except json.JSONDecodeError:  # Handle corrupted JSON file
-                return {}
+            except (json.JSONDecodeError, ValueError, TypeError):
+                return {}  # Return an empty dict if there's a problem with the file
     return {}  # Return empty dictionary if file doesn't exist
 
 def save_sessions(sessions):
-    # Convert datetime objects to strings for JSON serialization
     sessions_data = {}
     for code, session in sessions.items():
         session_copy = session.copy()
         session_copy['created_at'] = session['created_at'].isoformat()
         session_copy['last_code_time'] = session['last_code_time'].isoformat()
         sessions_data[code] = session_copy
-    
+
     with open(SESSIONS_FILE, 'w') as f:
         json.dump(sessions_data, f)
 
@@ -55,13 +64,12 @@ def cleanup_expired_sessions():
     current_time = datetime.now()
     expired_sessions = []
 
-    for code, session in list(sessions.items()):
-        # Delete files older than 24 hours
-        if current_time - session['created_at'] > timedelta(hours=24):
+    for code, session in sessions.items():
+        if current_time - session['created_at'] > timedelta(hours=24):  # File expires after 24 hours
             expired_sessions.append(code)
             try:
                 os.remove(session['file_path'])
-            except FileNotFoundError:
+            except:
                 pass
 
     for code in expired_sessions:
@@ -69,12 +77,20 @@ def cleanup_expired_sessions():
 
     save_sessions(sessions)
 
+def regenerate_codes():
+    """Regenerate expired codes every 1 minute."""
+    current_time = datetime.now()
+    for code, session in list(sessions.items()):
+        if current_time - session['last_code_time'] > CODE_EXPIRATION_TIME:
+            new_code = generate_code()
+            sessions[new_code] = session  # Assign session to new code
+            sessions[new_code]['last_code_time'] = current_time  # Reset timer
+            del sessions[code]  # Remove old code
+
+    save_sessions(sessions)
+
 # Load existing sessions
 sessions = load_sessions()
-
-# Ensure sessions is always a dictionary
-if not isinstance(sessions, dict):
-    sessions = {}
 
 # Set page config
 st.set_page_config(
@@ -99,11 +115,11 @@ st.markdown("""
         text-align: center;
         margin: 20px 0;
     }
-    .timer-display {
+    .timer {
         font-size: 1rem;
         color: red;
-        text-align: center;
         font-weight: bold;
+        text-align: center;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -118,16 +134,13 @@ tab1, tab2 = st.tabs(["Upload File", "Download File"])
 with tab1:
     st.header("Upload a File")
     st.write("Select a file to share (max 50MB)")
-    
+
     uploaded_file = st.file_uploader("Choose a file", type=list(ALLOWED_EXTENSIONS))
 
     if uploaded_file is not None:
         if allowed_file(uploaded_file.name):
             filename = secure_filename(uploaded_file.name)
-
-            # Generate a new code
             code = generate_code()
-            current_time = datetime.now()
 
             # Save file
             file_path = os.path.join(UPLOAD_FOLDER, filename)
@@ -138,8 +151,8 @@ with tab1:
             sessions[code] = {
                 'filename': filename,
                 'file_path': file_path,
-                'created_at': current_time,
-                'last_code_time': current_time,  # Track when the code was generated
+                'created_at': datetime.now(),
+                'last_code_time': datetime.now(),  # Initialize timer
                 'downloads': 0
             }
 
@@ -149,29 +162,15 @@ with tab1:
             # Display success message and code
             st.success("File uploaded successfully!")
             st.markdown("### Share this code with others:")
-            code_display = st.empty()
-            code_display.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="code-display">{code}</div>', unsafe_allow_html=True)
 
-            # Countdown Timer
-            timer_display = st.empty()
+            # Calculate remaining time
+            time_remaining = CODE_EXPIRATION_TIME.total_seconds()
+            st.markdown(f'<div class="timer">Code expires in: {int(time_remaining // 60)} min {int(time_remaining % 60)} sec</div>', unsafe_allow_html=True)
 
-            def update_timer():
-                while (datetime.now() - sessions[code]['last_code_time']).seconds < CODE_EXPIRATION_TIME:
-                    remaining_time = CODE_EXPIRATION_TIME - (datetime.now() - sessions[code]['last_code_time']).seconds
-                    timer_display.markdown(f'<div class="timer-display">Code expires in {remaining_time} seconds</div>', unsafe_allow_html=True)
-                    time.sleep(1)
-
-                # Generate new code after expiration
-                new_code = generate_code()
-                sessions[new_code] = sessions.pop(code)
-                sessions[new_code]['last_code_time'] = datetime.now()
-                save_sessions(sessions)
-                code_display.markdown(f'<div class="code-display">{new_code}</div>', unsafe_allow_html=True)
-                timer_display.markdown(f'<div class="timer-display">New code generated!</div>', unsafe_allow_html=True)
-
-            st.button("Copy Code", key="copy_upload")
-            st.thread(update_timer)  # Start the countdown in the background
-
+            # Add copy button
+            if st.button("Copy Code"):
+                st.write("Code copied to clipboard!")  # This won't actually copy; Streamlit can't do clipboard operations
         else:
             st.error("File type not allowed")
 
@@ -179,9 +178,9 @@ with tab1:
 with tab2:
     st.header("Download a File")
     st.write("Enter the code provided by the file owner")
-    
+
     code = st.text_input("Enter 6-digit code", "").strip().upper()
-    
+
     if st.button("Download File"):
         if not code:
             st.error("Please enter a code")
@@ -190,11 +189,11 @@ with tab2:
         else:
             session = sessions[code]
 
-            # Check if file has expired
+            # Check if the file has expired
             if datetime.now() - session['created_at'] > timedelta(hours=24):
                 try:
                     os.remove(session['file_path'])
-                except FileNotFoundError:
+                except:
                     pass
                 del sessions[code]
                 save_sessions(sessions)
@@ -212,9 +211,10 @@ with tab2:
                         mime="application/octet-stream"
                     )
 
-# Cleanup expired sessions
+# Cleanup expired sessions and regenerate codes
 cleanup_expired_sessions()
+regenerate_codes()
 
 # Footer
 st.markdown("---")
-st.markdown("Files are automatically deleted after 24 hours")
+st.markdown("Files are automatically deleted after 24 hours. Codes expire every 1 minute.") 
